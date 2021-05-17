@@ -1,0 +1,382 @@
+Krill EMC Results - under conditions of intra-specific competition
+
+========================================================
+
+The scenarios presented here relate to conditions of limiting resources.  
+Limitation is by the volume of new water filtered relative to the maximum filtration rate.  If consumption competition applies then the ratio of water filtered to maximum filtration is governed by population size.  If competition is governed by body size e.g. larger bodies have an advantage through displacement or smaller bodies have an advantage through agility, then filration rate will be adjusted accordingly.
+
+These scenarios do not reflect population size or structure except in a relative sense to illustrate the consequences of limiting resources and different forms of intraspecific competition.
+
+
+```{r}
+# 0. Set up directories, functions, libraries and initial parameters for test
+
+# 0.1 ancillary directories
+
+dir_fns<-"Fns\\"
+dir_data<-"Data\\"
+dir_out<-"Out\\"
+
+# 0.2 load functions 
+
+# old source(paste(dir_fns,"Growth_Fn_EMC.r",sep=""))
+
+source(paste(dir_fns,"Growth_Fn_EMC_v2.r",sep=""))
+
+# 0.3 load libraries
+
+library(plotrix)
+library(R2HTML)
+
+# 0.4. initialise parameters (EMC_p)
+
+source(paste(dir_data,"Growth_data_KrillParams.r",sep=""))
+
+# 0.5. Area-specific environment (AreaEnv) and other local variables
+
+source(paste(dir_data,"Growth_data_Env.r",sep=""))
+
+```
+
+# 1. Initialise conditions for parsing to the function and name according to function variables
+
+```{r}
+# 1.1 Initialise trial
+
+ActiveArea<-20  # which area is to be used
+                # note that this will be made into a relative abundance of food
+
+Start_asPropYr <- 0  # 1 January
+Gstate<-list(iG     = 0 # investment in growth within moult
+            ,IMP    = 0 # where IMP is prop of IMP completed
+            ,IMPtime = 0 # time in IMP so far (years)
+            ,DayLength_LastMoult = DL_EMC(Area_lat[Area_n==ActiveArea],Start_asPropYr)  # day length at last moult
+            )
+
+Rstate<-list(iR     = 0 #   Ir is investment in reproduction within moult cycle
+           , Moults = 0 # how many moults have passed in stage of cycle
+           , Cycle  = 3 # which stage of the cycle is currently active  - note that this is set for any age
+           )
+
+Carbon<-list(Cingest = 0
+            ,Cassim  = 0
+            ,Cegest  = 0
+            ,Cexcess = 0
+            ,BodyCarbon = NA
+            )
+Local<-list(AreaLat = Area_lat[Area_n==ActiveArea]  # latitude of location to give day length
+            , Env = AreaEnv[(AreaEnv[,1]==ActiveArea),c(3:ncol(AreaEnv))]
+            )
+
+Local$Env[,3]<-1.5E3  #  value at maximum production for 30 mm, -1oC, female
+
+
+print(Local$Env)
+```
+
+
+
+
+```{r}
+# Set specific conditions for trial
+
+Start.Age<-1
+Start.Length<-20   
+Start.WhichSex<-2   # 1 = male, 2 = female, 3 = mature female
+Start.StartProj<-0  # project for one year
+Start.EndProj<-1
+
+
+# Filtering Efficiency is used to scale the food in the area to available food per volume for an individual
+
+
+Filt_Eff<- 0.06  # set this to determine how much of the food is available in the volume being filtered (accounts for competition)
+
+
+
+ResMoults<-NULL
+IntSex <-c(1,2)
+IntLen <-c(30,40,50,60)
+IntTemp <- (c(-10:50)/10)
+IntFilt_Eff <- c(0.05,0.5,1) 
+  
+for (s in IntSex){
+  for (Length in IntLen){
+    for (Temp in IntTemp){
+      Local$Env[,2]<-Temp
+
+      for (Filt_Eff in IntFilt_Eff){
+    
+Run.WhichSex<- s
+
+Age    <- 3
+DryWeight<-DW_from_Length(Length,EMC_p$LW,Run.WhichSex)
+Kstate<-list(Gro=Gstate, Rep = Rstate, Carbon = Carbon, Female= (if(Run.WhichSex==1) FALSE else TRUE))
+Kstate$Carbon$BodyCarbon<-CW_from_Length(Length,EMC_p$LW,2)
+StartProj<-Start.StartProj  # project for one year
+EndProj<-Start.EndProj
+
+Total_proj<-NULL
+
+res<-Growth_EMC(Age      
+          ,Length     
+          ,DryWeight
+          ,Kstate
+          ,Filt_Eff
+          ,StartProj   
+          ,EndProj     
+          ,Local       
+          ,EMC_p       
+          )
+ResMat<-matrix(res$Moults$Data,ncol=res$Moults$Vars,byrow=res$Moults$ByRow)
+RMrows<-nrow(ResMat)
+ResMoults<-rbind(ResMoults,
+                 c(s,Length,Temp,Filt_Eff, # treatments at beginning
+                   Age,DryWeight,     # initial age and dryweight
+                   ResMat[RMrows,10], # final length
+                   ResMat[RMrows,11], # final dryweight
+                   sum(ResMat[,15]))  # total eggs
+                   ) # end rbind
+
+} # end Length
+} # end Temp
+} # end Filt_Eff
+} # end sex
+
+
+
+# Results for each moult are in res$Moults
+ 
+dimnames(ResMoults)[[2]]= c( "Sex"
+                            ,"Length"
+                            ,"Temp"
+                            ,"Filt_Eff"
+                            ,"Age"
+                            ,"DW_init"
+                            ,"Len_end"
+                            ,"DW_end"
+                            ,"Eggs_total"
+                             ) # end names
+
+print(ResMoults)
+```
+
+## Plots
+
+
+```{r echo=FALSE}
+
+
+PlotVar<-function(VX,  # variable on X axis
+                  VY,  # variable on Y axis
+                  VYdenom, # divide VY by this quantity, make = VY if not to use a variable in Res
+                  ML,  # variable for multiple lines
+                  PV1, # panel variable 1 # rows
+                  PV2, # panel variable 2 # columns
+                  Res,  # results matrix
+                  LimX, # limits to X axis (if NULL then work them out)
+                  LimY,  # limits to Y axis (if NULL then work out)
+                  colML, # colours for multiple lines
+                  ltyML, # line types for multiple lines
+                  Row_Yaxis_Var,
+                  Vary_Yaxis_row,
+                  LabX, # label for X axis
+                  LabY,  # label for Y axis
+                  NamePV1,
+                  NamePV2,
+                  setPanelPlots, # if wish to do a panel of plots rows = PV1 and cols = PV2
+                  TMT_rows_text,
+                  TMT_rows_text_line,
+                  TMT_cols_text,
+                  TMT_cols_text_line,
+                  vOMA,
+                  PLOT.TIF,
+                  TIF.Filename,
+                  TIF.dim # e.g. list (height = 6, width = 8.5, units = 'cm', res = 1500)
+                  ){
+
+  # if plotting for publication - advice here https://danieljhocking.wordpress.com/2013/03/12/high-resolution-figures-in-r/
+  #   tiff("FileName.tiff", height = 12, width = 17, units = 'cm', compression = "lzw", res = 300)
+  
+ if(PLOT.TIF) tiff(filename = TIF.Filename, height = TIF.dim$height, width = TIF.dim$width
+                                          , units = TIF.dim$units, res = TIF.dim$res)
+
+
+ if(VYdenom != VY) Res[,VY]<-Res[,VY]/Res[,VYdenom]  # standardises quantity to initial quantity if needed e.g. length, dry weight
+ 
+ 
+ vals_PV1<-unique(Res[,PV1])
+ vals_PV2<-unique(Res[,PV2])
+ 
+ # set panel of plots
+ if(setPanelPlots) {
+   op<-par(no.readonly = TRUE) # saving par in order to restore it at end
+   if (!is.null(vOMA)) par(oma=vOMA + 0.1)
+   par(mfrow=c(length(vals_PV1),length(vals_PV2)))
+   par(mar=c(1.0,0.75,0.5,0.5)) 
+ }
+ 
+ vals_ML <-unique(Res[,ML])
+ if (is.null(LimX)) LimX <- c(min(Res[,VX]),max(Res[,VX]))
+ if (is.null(LimY)) LimY <- c(min(Res[,VY]),max(Res[,VY]))
+ if (is.null(colML)) colML <- c(1:length(vals_ML))
+ if (is.null(ltyML)) ltyML <- c(1:length(vals_ML))
+ 
+ for (i in 1:length(vals_PV1)){
+   labelX <- LabX
+   if(Vary_Yaxis_row) {LimY<-Row_Yaxis_Var[[i]]$LimY; nYticks<-Row_Yaxis_Var[[i]]$nYticks; at_tickY<-Row_Yaxis_Var[[i]]$at_tickY} else
+                      {nYticks<-NULL; at_tickY<-NULL}
+     
+     labelTickX<- TRUE
+     labelTickY<- TRUE
+
+   if (setPanelPlots){ 
+     labelX<- ""
+     if (i!=length(vals_PV1)) labelTickX<- FALSE else TRUE
+      }
+   for (j in 1:length(vals_PV2)){
+     pd<-Res[Res[,PV1]==vals_PV1[i] & Res[,PV2]==vals_PV2[j],c(VX,VY,ML)]
+
+     labelY <- LabY
+    if (setPanelPlots){ 
+      labelY<- ""
+      if (j!=1) labelTickY<-  FALSE else TRUE 
+      }
+     PlotTitle <-if (!setPanelPlots) paste(NamePV1," ",vals_PV1[i]," : ",NamePV2," ",vals_PV2[j],sep="") else ""
+     plot(NA,NA,xlim=LimX,ylim=LimY, xlab=labelX,ylab=labelY,main=PlotTitle, xaxt="n",yaxt="n",lwd=1,bty="n")
+     box(lwd=1)
+     axis(side=1,labels=labelTickX, at=c(-1,0,1,2,3,4,5),lwd=1, cex.axis=0.75)
+     axis(side=2,labels=labelTickY, at=at_tickY,lwd=1, cex.axis=0.75)
+     
+     for (m in 1:length(vals_ML)) lines(pd[pd[,3]==vals_ML[m],1],pd[pd[,3]==vals_ML[m],2],col=colML[m],lty=ltyML[m],lwd=1)
+
+   } # end j
+ } # end i
+  
+ if(setPanelPlots) { # add annotations
+      mtext(side=2,text=LabY, line=2, col="black",cex=0.75,outer=TRUE)
+      mtext(side=3,text=TMT_cols_text, line=TMT_cols_text_line, col="black",cex=0.75,outer=TRUE,font=4)
+      mtext(side=1,text=expression(paste('Temperature (',degree,'C)')), line=1.5, col="black",cex=0.75,outer=TRUE)
+      mtext(side=2,text=TMT_rows_text, line=TMT_rows_text_line, col="black",cex=0.75,outer=TRUE,font=4)
+   
+      par(op) # restore par
+
+       }
+
+ if(PLOT.TIF) dev.off()
+
+ } # end PlotVar
+
+```
+
+Variables
+1 "Sex"
+2 "Length"
+3 "Temp"
+4 "Filt_Eff"
+5 "Age"
+6 "DW_init"
+7 "Len_end"
+8 "DW_end"
+9 "Eggs_total"
+
+
+## Length
+
+```{r echo=FALSE}
+# subset data
+RMd<-ResMoults
+
+TMT_rows_text<-"     1.0 Food               0.5 Food           0.05 Food"              ###########
+TMT_rows_text_line<-4
+TMT_cols_text<-'   Males                                                                     Females'  ######### end of line
+TMT_cols_text_line<-1
+vOMA<-c(4, 5.5, 3, 1)
+
+
+Row_Yaxis_Var<-list(r1 = list(LimY=c(0  ,1.1), nYticks=6, at_tickY=c(0,0.2,0.4,0.6,0.8,1.0)),
+                    r2 = list(LimY=c(0.9,1.6), nYticks=4, at_tickY=c(1.0,1.2,1.4,1.6)),
+                    r3 = list(LimY=c(0.9,2.5), nYticks=4, at_tickY=c(1.0,1.5,2.0,2.5)))
+
+print(Row_Yaxis_Var)
+
+  PlotVar(3,  # variable on X axis
+        7,  # variable on Y axis
+        2,  # denominator to divide into VY.  same as VY if not required
+        2,  # variable for multiple lines
+        4, # panel variable 1  - rows
+        1, # panel variable 2  - columns
+        RMd,  # results matrix
+        NULL, # limits to X axis (if NULL then work them out)
+        NULL,  # limits to Y axis (if NULL then work out)
+        NULL, # colours for multiple lines
+        NULL, # line types for multiple lines
+        Row_Yaxis_Var,
+        TRUE, #Vary_Yaxis_row = 
+        expression(paste('Temperature (',degree,'C)')), # label for X axis
+        "Proportion initial Length",  # label for Y axis
+        "Fe",
+        "Sex",
+        TRUE, # if wish to do a panel of plots rows = PV1 and cols = PV2
+        TMT_rows_text,
+        TMT_rows_text_line,
+        TMT_cols_text,
+        TMT_cols_text_line,
+        vOMA,
+        TRUE, # PLOT.TIF,
+        'EMC_food_sex_size.tif',#          TIF.Filename
+        list (height = 100, width = 170, units = 'mm', res = 300) # TIF.dim
+         )# end call to PlotVar
+
+```
+
+if(PLOT.TIF) tiff(filename = "EMC_old_growth_models v3.tif", width = 170, height = 100, units = "mm", res=300)
+
+
+
+## Eggs
+
+```{r echo=FALSE}
+
+# subset data
+RMd<-ResMoults[(ResMoults[,1]==2 & ResMoults[,4]>0.1),]
+RMd[,9]<-RMd[,9]/1000  # total number of eggs as 1000's
+TMT_rows_text<-'       1.0 Food                      0.5 Food'
+TMT_rows_text_line<-3.5
+TMT_cols_text<-'Females'
+TMT_cols_text_line<-1
+vOMA<-c(3, 10, 3, 10)
+
+Row_Yaxis_Var<-list(r1 = list(LimY=c(0  ,5), nYticks=6, at_tickY=c(0,1,2,3,4,5)),
+                    r2 = list(LimY=c(10 ,50), nYticks=5, at_tickY=c(10,20,30,40,50)))
+
+
+PlotVar(3,  # variable on X axis
+        9,  # variable on Y axis
+        9,  # denominator to divide into VY.  same as VY if not required
+        2,  # variable for multiple lines
+        4, # panel variable 1  - rows
+        1, # panel variable 2  - columns
+        RMd,  # results matrix
+        NULL, # limits to X axis (if NULL then work them out)
+        NULL,  # limits to Y axis (if NULL then work out)
+        NULL, # colours for multiple lines
+        NULL, # line types for multiple lines
+        Row_Yaxis_Var,
+        TRUE, # Vary_Yaxis_row = 
+        expression(paste('Temperature (',degree,'C)')), # label for X axis
+        "Total Eggs (,000)",  # label for Y axis
+        "Fe",
+        "Sex",
+        TRUE, # if wish to do a panel of plots rows = PV1 and cols = PV2
+        TMT_rows_text,
+        TMT_rows_text_line,
+        TMT_cols_text,
+        TMT_cols_text_line,
+        vOMA,
+        TRUE, # PLOT.TIF,
+        'EMC_food_sex_eggs.tif', #          TIF.Filename
+        list (height = 100, width = 170, units = 'mm', res = 300) # TIF.dim
+         )# end call to PlotVar
+
+```

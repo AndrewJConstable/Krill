@@ -1,0 +1,320 @@
+Atkinson model + comparison with vB and other models
+========================================================
+# Krill Parameters
+
+```{r}
+source("Data\\Growth_data_KrillParams.r")
+source("Data\\Growth_data_KrillSizeAtAge.r")
+source("Fns\\Growth_Fn_EMC_v2.r")    # functions to support EMC and validation
+```
+
+# Atkinson calculations
+
+This document provides a test of the routines used in Constable & Kawaguchi on Krill growth.
+
+
+## Time series of temperature and food
+
+1. Generate time series from raw monthly temperature and chlorophyll data (note that Atkinson model uses Chlorophyll and not carbon)
+
+```{r, echo=FALSE}
+# Data
+
+###########################################################################
+# 1. scenarios
+
+DaysInMonth<-c(31,28,31,30,31,30,31,31,30,31,30,31)
+CumDaysInMonth<-apply(matrix(c(1:12),nrow=1),2,function(m,DIM){sum(DIM[c(1:m)])},DaysInMonth)
+# 31  59  90 120 151 181 212 243 273 304 334 365
+
+refMonth<-matrix(c(1:12),nrow=1)
+Area<-c(8,20)
+ColArea<-c("black","red") # plotting colour
+
+# SSRU Elephant Island (EPOC Area 8)
+# SSRU South Georgia West (EPOC Area 20)
+
+
+###Sea surface temperature (oC)
+
+  SST<-matrix(c( 8, 1, 1.343081858,0.386184037
+               , 8, 2, 1.528896831,0.345323414
+               , 8, 3, 1.088661308,0.393935477
+               , 8, 4, 0.420484764,0.297858027
+               , 8, 5,-0.241198962,0.350801156
+               , 8, 6,-0.669309516,0.35996916
+               , 8, 7,-0.903839814,0.376720732
+               , 8, 8,-0.851951408,0.34998953
+               , 8, 9,-0.784357636,0.275890476
+               , 8,10,-0.596537484,0.191668006
+               , 8,11,-0.030453754,0.287945069
+               , 8,12, 0.614372895,0.389847948
+               ,20, 1, 2.977688308,0.545736361
+               ,20, 2, 3.674458423,0.510002269
+               ,20, 3, 3.566845192,0.4973703
+               ,20, 4, 3.04992636 ,0.466596541
+               ,20, 5, 2.15436472 ,0.492427588
+               ,20, 6, 1.344083196,0.414378222
+               ,20, 7, 0.807527468,0.359595024
+               ,20, 8, 0.450114131,0.379167007
+               ,20, 9, 0.260947186,0.386936734
+               ,20,10, 0.405072008,0.358666728
+               ,20,11, 1.013203156,0.525696475
+               ,20,12, 1.972289308,0.532591851
+               ),ncol=4,byrow=TRUE)
+
+TempTimeSeries<-NULL
+for(a in 1:length(Area)){
+  for (m in 1:12){
+    TempTimeSeries<-c(TempTimeSeries,rep(c(Area[a],SST[(SST[,1]==Area[a] & SST[,2]==m),3]),DaysInMonth[m]))
+    } # end m
+    } # end i
+TempTimeSeries<-matrix(TempTimeSeries,ncol=2,byrow=TRUE)
+
+### Chlorophyll density (mg.m-2) in day in the year
+
+
+# SSRU Elephant Island (EPOC Area 8)
+# SSRU South Georgia West (EPOC Area 20)
+
+# Chl: cols : 1=SSRU, 2 = month, 3 = mean, 4=SD
+
+  Chl<-matrix(c( 8, 1,0.38491479 ,0.051755452
+               , 8, 2,0.36056937 ,0.11383729
+               , 8, 3,0.28682625 ,0.059662066
+               , 8, 4,0.237112967,0.0663785
+               , 8, 5,0.177183111,0.071857447
+               , 8, 6,0.0        ,0.0
+               , 8, 7,0.0        ,0.0
+               , 8, 8,0.138077989,0.010203458
+               , 8, 9,0.16895978 ,0.020115181
+               , 8,10,0.23142768 ,0.032753194
+               , 8,11,0.33732674 ,0.105439134
+               , 8,12,0.36952999 ,0.056923504
+               ,20, 1,0.35796619 ,0.122594507
+               ,20, 2,0.32695873 ,0.072106149
+               ,20, 3,0.26500882 ,0.059671121
+               ,20, 4,0.186710711,0.030303299
+               ,20, 5,0.0        ,0.0
+               ,20, 6,0.0        ,0.0
+               ,20, 7,0.0        ,0.0
+               ,20, 8,0.123073563,0.028628654
+               ,20, 9,0.17135081 ,0.024433161
+               ,20,10,0.35591058 ,0.106854203
+               ,20,11,0.36771736 ,0.109344432
+               ,20,12,0.43847379 ,0.152904603
+               ),ncol=4,byrow=TRUE)
+
+
+
+# note that the conversion to carbon from chlorophyll is often considered to be 50x.
+
+FoodFromChl<-50  # leave as chlorophyll for now (conversion factor of food from chlorophyll)
+
+
+FoodSeries<-NULL
+
+for(a in 1:length(Area)){
+  for (m in 1:12){
+    FoodSeries<-c(FoodSeries,rep(c(Area[a],Chl[(Chl[,1]==Area[a] & Chl[,2]==m),3]),DaysInMonth[m]))
+    } # end m
+    } # end i
+FoodSeries<-matrix(FoodSeries,ncol=2,byrow=TRUE)
+FoodSeries[,2]<-FoodSeries[,2]*FoodFromChl
+print('Chlorophyll series')
+print(FoodSeries)
+
+plot(NA,NA,xlim=c(0,365),ylim=c(0,max(FoodSeries[,2])),xlab="Julian day", ylab="Chl a (mg.m2)")
+for (a in 1:length(Area)) lines(c(1:365),FoodSeries[FoodSeries[,1]==Area[a],2],col=ColArea[a])
+
+```
+
+
+## Calculations of growth increments for Atkinson Model
+
+
+```{r, echo=FALSE}
+
+
+TargetArea<-20
+Nyears<-7
+
+LengthInitial<-20
+StartJulianDay<-160
+AgeAtStart<-0.5
+
+################################################################################
+# 1. time series of 8 calendar years of days with temperature and food
+
+TimeSeries<-cbind(as.vector(matrix(rep(c(0:Nyears),365),ncol=(Nyears+1),byrow=TRUE))
+                 ,rep(c(1:365),(Nyears+1))
+                 ,rep((c(1:365)/365),(Nyears+1)))
+TimeSeries<-cbind(TimeSeries
+                ,(TimeSeries[,1]+TimeSeries[,3]))
+TimeSeries<-cbind(TimeSeries
+                 ,rep(TempTimeSeries[TempTimeSeries[,1]==TargetArea,2],(Nyears+1))
+                 ,rep((FoodSeries[FoodSeries[,1]==TargetArea,2]),(Nyears+1)))
+                 
+dimnames(TimeSeries)[[2]]<-c("Year","Julian","YrProp","Age","Temp","Food")
+#plot((TimeSeries[,1]+TimeSeries[,2]),TimeSeries[,3],type="l")
+
+# adjust age to correspond to age at start
+if(StartJulianDay>1){
+  YearZeroDay<-TimeSeries[(StartJulianDay-1),"Year"]
+  YrPropZeroDay<-TimeSeries[(StartJulianDay-1),"YrProp"]
+  AgeZeroDay<-TimeSeries[(StartJulianDay-1),"Age"]
+  TimeSeries[,"Age"]<-TimeSeries[,"Age"]-AgeZeroDay+AgeAtStart
+  } else {
+  YearZeroDay<-0
+  YrPropZeroDay<-0
+  }
+# Truncate to start on the right day
+TimeSeries<-TimeSeries[c(StartJulianDay:nrow(TimeSeries)),]
+
+# add zero time row to facilitate starting conditions in calculations
+TimeSeries<-rbind(c(YearZeroDay,(StartJulianDay-1),YrPropZeroDay,AgeAtStart,NA,NA),TimeSeries)
+dimnames(TimeSeries)[[2]]<-c("Year","Julian","YrProp","Age","Temp","Food")
+print(TimeSeries[c(1:50),])
+
+################################################################################
+# 2. IMP
+
+# 2.1 proportion of IMP
+
+      IMPcalc<-0
+      IMPcalc<-c(IMPcalc,IMP_EMC(TimeSeries[c(2:nrow(TimeSeries)),"Temp"]))
+
+# 2.2 cumulative sum of IMP proportions
+
+      IMPcalc<-cbind(IMPcalc,as.vector(apply(matrix(c(1:nrow(TimeSeries)),nrow=1),2,function(Cell,Data){sum(Data[c(1:Cell)])},IMPcalc)))
+
+# 2.3 sigma (day on which growth occurs)
+
+      IMPcalc<-cbind(IMPcalc,as.vector(apply(matrix(c(1:nrow(TimeSeries)),nrow=1),2,function(Cell,Data){
+                           if(Cell==1) return(1)
+                           if(floor(Data[Cell,2]) >floor(Data[(Cell-1),2])) return(1)
+                           if(floor(Data[Cell,2])==floor(Data[(Cell-1),2])) return(0)
+                           },IMPcalc)
+                           ))
+
+# 2.4 assign dimnames
+      dimnames(IMPcalc)[[2]]<-c("IMPprop","IMPcum","IMPsigma")
+
+# 2.5 add sigma to TimeSeries
+
+      TimeSeries<-cbind(TimeSeries,IMPcalc[,"IMPsigma"])
+      dimnames(TimeSeries)[[2]][ncol(TimeSeries)]<-"IMPsigma"
+print(TimeSeries[c(1:360),])
+
+################################################################################
+# 3. Growth and reproduction
+
+#   3.1 Row references based on IMPsigma
+
+    Gday<-c(1:nrow(TimeSeries))[TimeSeries[,"IMPsigma"]>0]
+    print(Gday)
+#    plot(c(1:(length(Gday)-1)),(Gday[c(2:length(Gday))]-Gday[c(1:(length(Gday)-1))]))
+    Nmoults<-length(Gday)
+    
+
+    Age          <-TimeSeries[1,"Age"]
+
+    LengthSeries                <- matrix(rep(NA,(2*Nmoults)),ncol=2)
+    dimnames(LengthSeries)[[2]] <- c("Age","Length")
+    LengthSeries[1,]            <- c(Age,LengthInitial)
+    
+
+    ######################################  LOOP ####################################################
+#   3.2 loop through each growth period
+    for (m in 2:Nmoults){  # start at second moult
+    
+    # for error checking
+        dAge<-TimeSeries[Gday[m],"Age"]-TimeSeries[Gday[(m-1)],"Age"]
+        Age<-Age+dAge
+        L0<-LengthSeries[(m-1),2]
+        # 3.2.1 calculation filtered food (mg)
+          # Ration after daily metabolic demand is taken out
+            Ration<-sum(TimeSeries[c((Gday[(m-1)]+1):Gday[m]),"Food"])/(TimeSeries[Gday[m],"Julian"]-TimeSeries[Gday[(m-1)],"Julian"])
+            Rtemp<-sum(TimeSeries[c((Gday[(m-1)]+1):Gday[m]),"Temp"])/(TimeSeries[Gday[m],"Julian"]-TimeSeries[Gday[(m-1)],"Julian"])
+            dG<-IGR_Atkinson_MaxFood(L0,Rtemp,Ration,Atkinson_B)
+           LengthSeries[m,]<-c(Age,(L0+dG))
+
+      } # end moult (m) loop
+
+
+Length_Atkinson<-LengthSeries
+
+plot(NA,NA,xlim=c(0,10),ylim=c(0,70),xlab="Age {years)",ylab="Length (mm)")
+lines(LengthSeries[,1],LengthSeries[,2],col="black",lty=9,lwd=2)
+
+```
+
+
+
+
+
+
+# Plot different models
+
+```{r,echo=FALSE}
+
+############# Graphics ready for printing to TIF file
+PLOT.TIF <- TRUE  # make TRUE (not FALSE) if wishing to plot to TIF file
+
+# if(PLOT.TIF) tiff(filename = "EMC_old_growth_models.tif", width = 1500, height = 960, units = "px", pointsize = 24)
+
+if(PLOT.TIF) tiff(filename = "EMC_old_growth_models v3.tif", width = 170, height = 100, units = "mm", res=300)
+
+par(mar=c(5, 5, 4, 4) + 0.1) # as much space in left margin as possible
+
+xlim_Len<-c(1,7)
+ylim_Len<-c(20,60)
+col_Len<-'black'
+
+lines_names <- c("vB",   "PvB","SvB","K-C","A")
+lines_col   <- c("black","red3",      "blue",  "black",          "red3")
+lines_lty   <- c(    1,    8,           6,         1,                3)
+# lines_lwd   <- c(    2,    1,           1,         3,                3)
+lines_lwd   <- c(    1,    1,           1,         2,                2)
+
+plot(NA, NA, axes=F, xlim=xlim_Len,ylim=ylim_Len, xlab='', ylab='')
+
+# plot vB lines
+
+xInt<-50
+Age<-c((xlim_Len[1]*xInt):(xlim_Len[2]*xInt))/xInt
+
+i<-1
+lines(Age,Growth.VB(SizeAtAge_p$VB,Age,0,0),      col=lines_col[i],lty=lines_lty[i], lwd=lines_lwd[i])
+i<-2
+lines(Age,Growth.PVB(SizeAtAge_p$PVB,Age,0,0),    col=lines_col[i],lty=lines_lty[i], lwd=lines_lwd[i])
+i<-3
+lines(Age,Growth.SVB(SizeAtAge_p$SVB,Age,0,0),    col=lines_col[i],lty=lines_lty[i], lwd=lines_lwd[i])
+i<-4
+lines(Age,Growth.PVB_F(SizeAtAge_p$PVB_F,Age,0,0),col=lines_col[i],lty=lines_lty[i], lwd=lines_lwd[i])
+i<-5
+lines(LengthSeries[,1],LengthSeries[,2],          col=lines_col[i],lty=lines_lty[i], lwd=lines_lwd[i])
+
+
+
+legend("bottomright",legend=lines_names
+       ,col=lines_col,lty=lines_lty,lwd=lines_lwd)
+
+#axis(2, ylim=ylim_Len,col=col_Len,lwd=2,col.axis=col_Len)
+axis(2, ylim=ylim_Len,col=col_Len,lwd=1,col.axis=col_Len)
+mtext(2,text='Length (mm)',line=2,col=col_Len)
+
+
+# axis(1,pretty(range(xlim_Len),(xlim_Len[2]-xlim_Len[1])),lwd=2)
+axis(1,pretty(range(xlim_Len),(xlim_Len[2]-xlim_Len[1])),lwd=1)
+mtext('Age',side=1,col='black',line=2)
+
+# return plotting to terminal
+
+if(PLOT.TIF) dev.off()
+
+############# End printing to TIF file
+```
+
+
+

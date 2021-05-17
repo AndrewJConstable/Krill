@@ -1,0 +1,656 @@
+Krill EMC Results - ICES J. Marine Science - resubmission
+South Georgia example
+September 2017
+
+========================================================
+
+Results for the South Georgia example providing the specific graphics
+for resubmission.
+
+```{r,echo=FALSE}
+## plot for publication
+
+PLOT.TIF <- TRUE  # make TRUE (not FALSE) if wishing to plot to TIF file
+
+```
+
+```{r}
+# 0. Set up directories, functions, libraries and initial parameters for test
+
+# 0.1 ancillary directories
+
+dir_fns<-"Fns\\"
+dir_data<-"Data\\"
+dir_out<-"Out\\"
+
+# 0.2 load functions 
+
+# old source(paste(dir_fns,"Growth_Fn_EMC.r",sep=""))
+
+source(paste(dir_fns,"Growth_Fn_EMC_v2.r",sep=""))
+source(paste(dir_data,"Growth_data_KrillParams.r",sep=""))
+source(paste(dir_data,"Growth_data_KrillSizeAtAge.r",sep=""))
+
+# 0.3 load libraries
+
+library(plotrix)
+library(R2HTML)
+
+# 0.4. initialise parameters (EMC_p)
+
+source(paste(dir_data,"Growth_data_KrillParams.r",sep=""))
+
+# 0.5. Area-specific environment (AreaEnv) and other local variables
+
+source(paste(dir_data,"Growth_data_Env.r",sep=""))
+
+```
+
+# 1. Initialise conditions for parsing to the function and name according to function variables
+
+```{r}
+# 1.1 Initialise trial
+
+ActiveArea<-20  # which area is to be used
+                # note that this will be made into a relative abundance of food
+
+Start_asPropYr <- 0  # 1 January
+Gstate<-list(iG     = 0 # investment in growth within moult
+            ,IMP    = 0 # where IMP is prop of IMP completed
+            ,IMPtime = 0 # time in IMP so far (years)
+            ,DayLength_LastMoult = DL_EMC(Area_lat[Area_n==ActiveArea],Start_asPropYr)  # day length at last moult
+            )
+
+Rstate<-list(iR     = 0 #   Ir is investment in reproduction within moult cycle
+           , Moults = 0 # how many moults have passed in stage of cycle
+           , Cycle  = 3 # which stage of the cycle is currently active  - note that this is set for any age
+           )
+
+Carbon<-list(Cingest = 0
+            ,Cassim  = 0
+            ,Cegest  = 0
+            ,Cexcess = 0
+            ,BodyCarbon = NA
+            )
+Local<-list(AreaLat = Area_lat[Area_n==ActiveArea]  # latitude of location to give day length
+            , Env = AreaEnv[(AreaEnv[,1]==ActiveArea),c(3:ncol(AreaEnv))]
+            )
+
+
+```
+
+
+# Population for weighting food available for each age class
+
+convert time series of carbon for area relative to individual krill 
+by setting up a population and its consumption for a time interval
+
+
+```{r}
+
+##################
+# set weighted availability of food for each age class based on deterministic model
+
+TwoSex<-TRUE
+Nsex<-2
+SexRatio<-c(0.5,0.5)
+
+Ages_N<-6   # note - no more than 8 age classes as per length of CingestPerIMP
+Age1<-1
+MaxAge<-(Age1+Ages_N-1)
+Ages<-c(Age1:MaxAge)
+NatMort<-c(0.8,0.8)
+  N_age      <- NULL
+  L_at_age_vB<- NULL
+  WW_at_age  <- NULL
+  DW_at_age  <- NULL
+  FR_at_age  <- NULL
+
+for(s in 1:Nsex){
+  tN_age      <- SexRatio[s]*exp((-NatMort[s])*Ages)
+  tN_age[Ages]<- tN_age[Ages]*(1+1/(exp(NatMort[s])-1)) # plus class
+  N_age       <- cbind(N_age,tN_age)
+  L_at_age_vB <- cbind(L_at_age_vB,Growth.VB(list(Linf=60, K=0.45, T0=0),Ages,0,0))
+  WW_at_age   <- cbind(WW_at_age,WW_from_Length(L_at_age_vB[,s],EMC_p$LW,s))
+  DW_at_age   <- cbind(DW_at_age,DW_from_Length(L_at_age_vB[,s],EMC_p$LW,s))
+  }
+
+N_age     <- N_age/sum(N_age)
+FR_at_age <- Fcf_EMC(DW_at_age) # filtration at age (m3.yr-1)
+
+
+# food becomes limiting when the maximum ingestion rate is not achieved
+# thus, the sum of (maximum ingestion rate at age by the frequency at age) can be divided into max food available during a period to give the number in the population 
+# that would cause the population to be food limited.
+
+# Local$Env[,1] # proportion of year
+# Local$Env[,3] # carbon mg/m2 consumed over the course of the time interval (proportion of year)
+
+# calculate max food consumed for an IMP
+
+# approximate maxima from model runs for SG time series
+CingestPerIMP<-c(75,283,592,931,1334,1802,2332,2928) #mg per IMP (0.04*365)
+CingestPerIMP<-CingestPerIMP[c(1:Ages_N)]    # note - no more than 8 age classes as per length of CingestPerIMP
+CingestPerDay<-CingestPerIMP/(0.04*365)
+if(TwoSex) CingestPerDay<-cbind(CingestPerDay,CingestPerDay)
+Ntotal<-max(Local$Env[,3]/Local$Env[,1])/365/sum(N_age*CingestPerDay) 
+
+Depth <- Ntotal*sum(N_age*FR_at_age)/43080448642/365 # volume m-2 day-1
+
+print(paste("Total N at SG = ",Ntotal,sep=""))
+print(paste("Total B at SG = ",(Ntotal*sum(WW_at_age*N_age))*(1E-9),sep=""))
+print(paste("Depth   = ",Depth,sep=""))
+
+# Scale the filtering efficiency according to competition coefficients and the food
+# available per volume (same units as filtering rate)
+# 
+# Filtering Efficiency is used to scale the food in the area to available food per volume for an individual
+
+AreaVol<-43080448642 * Depth
+Local$Env[,3]<-Local$Env[,3]/AreaVol *Local$Env[,1] # convert to mgC.m-3 for the time period
+
+Filt_Eff<- 0.063  # set this to determine how much of the food is available in the volume being filtered (accounts for competition)
+  
+print(Local$Env)
+```
+
+
+
+
+## 2.3 Loop through 8 years (start with only one year)
+
+```{r}
+# compare with 2 g.cm-3 average annual mean
+
+t1<-sum(Local$Env[,3]/365)/sum(Local$Env[,1])
+print(t1)
+print(2E-3/t1)
+```
+
+
+
+```{r}
+# Set specific conditions for trial
+
+Start.Age<-1
+Start.Length<-20   
+Start.WhichSex<-2   # 1 = male, 2 = female, 3 = mature female
+Start.StartProj<-0  # project for one year
+Start.EndProj<-1
+
+ResMoults<-NULL
+for (s in 1:Nsex){
+Run.WhichSex<-if(Nsex==1) Start.WhichSex else s
+
+Age    <- Start.Age
+Length <- Start.Length
+DryWeight<-DW_from_Length(Length,EMC_p$LW,Run.WhichSex)
+Kstate<-list(Gro=Gstate, Rep = Rstate, Carbon = Carbon, Female= (if(Run.WhichSex==1) FALSE else TRUE))
+Kstate$Carbon$BodyCarbon<-CW_from_Length(Length,EMC_p$LW,2)
+StartProj<-Start.StartProj  # project for one year
+EndProj<-Start.EndProj
+
+ResMoults<-rbind(ResMoults,
+                 c(0,Age,(if(Run.WhichSex==1) 1 else  
+                   2),0,0,0,0,0,0,Length,DryWeight,0,1,Age,0))
+Total_proj<-NULL
+
+for (i in 1:Ages_N){
+res<-Growth_EMC(Age      
+          ,Length     
+          ,DryWeight
+          ,Kstate
+          ,Filt_Eff
+          ,StartProj   
+          ,EndProj     
+          ,Local       
+          ,EMC_p       
+          )
+Age  <-  res$Age
+Length  <- res$Length   
+DryWeight <-res$DryWeight
+Kstate        <- res$Kstate      
+Total_proj<-res$Total
+ResMoults<-rbind(ResMoults,matrix(res$Moults$Data,ncol=res$Moults$Vars,byrow=res$Moults$ByRow))
+} # end age
+} # end sex
+
+# Results for each moult are in res$Moults
+ 
+dimnames(ResMoults)[[2]]= c("Moult"
+                            ,"Age"
+                            ,"Sex"
+                            ,"IMPtime"
+                            ,"Ration"
+                            ,"Cingest"
+                            ,"Cmet"
+                            ,"Cegest"
+                            ,"Carbon_ThisMoult"
+                            ,"Length"
+                            ,"DryWeight"
+                            ,"GonadDW"    # >0 even if no eggs when only first moult, or insufficient to reproduce
+                            ,"StCond"
+                            ,"AgeReprod"
+                            ,"Eggs")
+
+print(ResMoults[c(1:20),])
+
+# print(cbind(ResMoults[,"Age"],ResMoults[,"Cingest"],(ResMoults[,"Cingest"]-ResMoults[,"Cegest"])))
+```
+
+
+###Plot time series data
+
+
+```{r, echo=FALSE}
+
+
+
+# Plot for publication
+
+# Extract data for plotting
+PD<-ResMoults[,c("Age","Sex","Length","DryWeight","Eggs")]
+
+PD_male<-PD[PD[,2]==1,]
+PD_female<-PD[PD[,2]==2,]
+
+
+plot.WhichSex<-if(TwoSex) 1 else Start.WhichSex
+
+############# Graphics ready for printing to TIF file
+#if(PLOT.TIF) tiff(filename = "EMC_Environment.tif", width = 1500, height = 960, units = "px", pointsize = 24)
+
+if(PLOT.TIF) tiff(filename = "EMC_time_series_SG v1.tif", width = 170, height = 100, units = "mm", res=300)
+
+par(mar=c(3, 12, 2, 4) + 0.1) # as much space in left margin as possible
+par(cex.axis=0.75)
+
+xAge<-PD[,'Age']
+Xlim_Age<-c(Age1,(MaxAge+1))
+Xlab<-"Age (Years)"
+
+Ylim_Len<-c(0,65)
+col_Len<-"black"
+lty_Len<-c(6,3,1)  # males, females, mean
+lwd_Len<-c(1,1,1.5) # males, females, mean
+Ylab_Len<-'Length (mm)'
+
+Ylim_DW<-c(0,550)
+col_DW<-"blue"
+lty_DW<-c(6,3,1)  # males, females, mean
+lwd_DW<-c(1,1,1.5) # males, females, mean
+Ylab_DW<-'Body Dry Weight (mg)'
+
+Ylim_Eggs<-c(0,9000)
+col_Eggs<-"red3"
+pch_Eggs<-20
+lwd_Eggs<-1
+Ylab_Eggs<-'Eggs'
+
+# length
+
+plot(PD[PD[,"Sex"]==plot.WhichSex,"Age"],PD[PD[,"Sex"]==plot.WhichSex,"Length"],axes=F, xlab="",ylab=""
+        ,xlim=Xlim_Age,ylim=Ylim_Len,type="l",col=col_Len
+        ,lty=lty_Len[plot.WhichSex], lwd=lwd_Len[plot.WhichSex])
+if(TwoSex) {
+  lines(PD[PD[,"Sex"]==2,"Age"],PD[PD[,"Sex"]==2,"Length"],col=col_Len,lty=lty_Len[2],lwd=lwd_Len[2])
+  lines(PD_male[,"Age"],((PD_male[,"Length"]+PD_female[,"Length"])/2),col=col_Len,lty=lty_Len[3],lwd=lwd_Len[3])  # mean size at age
+  }
+# plot vB for comparison
+xInt<-10
+xAges<-c((Age1*xInt):((MaxAge+1)*xInt))/xInt
+yVB<-Growth.VB(SizeAtAge_p$VB,xAges,0,0)
+lines(xAges,yVB,col="black",lwd=1,lty=1)  # plot vB for comparison
+
+
+
+axis(2, ylim=Ylim_Len,col=col_Len,lwd=1,col.axis=col_Len)
+mtext(2,text=Ylab_Len,line=2,col=col_Len, cex=0.75)
+
+par(new=T)
+plot(PD[PD[,"Sex"]==plot.WhichSex,"Age"],PD[PD[,"Sex"]==plot.WhichSex,"DryWeight"],axes=F, xlab="",ylab=""
+        ,xlim=Xlim_Age,ylim=Ylim_DW,type="l",col=col_DW
+        ,lty=lty_DW[plot.WhichSex], lwd=lwd_DW[plot.WhichSex])
+if(TwoSex) {
+  lines(PD[PD[,"Sex"]==2,"Age"],PD[PD[,"Sex"]==2,"DryWeight"],col=col_DW,lty=lty_DW[2],lwd=lwd_DW[2])
+  }
+
+axis(2, ylim=Ylim_DW,lwd=1,line=3.5, col=col_DW,col.axis=col_DW)
+mtext(2,text=Ylab_DW,line=5.5, col=col_DW, cex=0.75)
+
+par(new=T)
+plot.WhichSex<-2
+#xD<-PD[(PD[,"Sex"]==plot.WhichSex & PD[,"Eggs"]>0),"Age"]
+#yD<-PD[(PD[,"Sex"]==plot.WhichSex & PD[,"Eggs"]>0),"Eggs"]
+#plot(xD,yD,axes=F, xlab="",ylab="",xlim=Xlim_Age,ylim=Ylim_Eggs,type='p',pch=pch_Eggs, col=col_Eggs)
+
+xD<-PD[(PD[,"Sex"]==plot.WhichSex),"Age"]
+yD<-PD[(PD[,"Sex"]==plot.WhichSex),"Eggs"]
+plot(xD,yD,axes=F, xlab="",ylab="",xlim=Xlim_Age,ylim=Ylim_Eggs,type='l',lwd=lwd_Eggs, col=col_Eggs,lty=1)
+
+axis(2, ylim=Ylim_Eggs,lwd=1,line=7, col=col_Eggs,col.axis=col_Eggs)
+mtext(2,text=Ylab_Eggs,line=9, col=col_Eggs, cex=0.75)
+
+
+#We can now draw the X-axis, which is of course shared by all the three time-series.
+
+axis(1,pretty(range(1,8),10))
+mtext(Xlab,side=1,col='black',line=2, cex=0.75)
+
+
+# return plotting to terminal
+
+if(PLOT.TIF) dev.off()
+
+############# End printing to TIF file
+
+
+```
+
+
+
+
+###Plot example annual growth and reproductive cycle for example age
+
+Data for plotting
+
+```{r, echo=FALSE}
+
+# plot info
+
+egAGE<-5
+
+Xlim<-c(0,1)
+Xlab<-"Proportion of Calendar Year"
+
+# Extract data for plotting - reproductive female to demonstrate investment in body and gonads, coupled with shrinking
+
+PD1<-ResMoults[(ResMoults[,"Sex"]== 2),]
+FirstRow<-nrow(PD1[(PD1[,"Age"]< egAGE),])
+LastRow<-nrow(PD1[(PD1[,"Age"]< (egAGE+1)),])+1
+PD<-PD1[c(FirstRow:LastRow),]
+
+# c("Moult","Age","Sex","IMPtime","Ration","Cingest","Cmet","Cegest","Carbon_ThisMoult","Length","DryWeight","GonadDW","StCond","AgeReprod","Eggs")
+
+# adjust the first row to be time 0 in the year
+PD_0<-PD[1,]
+
+if(PD_0['Age']!=egAGE){
+PD_0['Age']<-egAGE
+PD_0['IMPtime']<-NA
+PD_0['Ration']<-PD[2,'Ration']*(egAGE-PD[1,'Age'])/(PD[2,'Age']-PD[1,'Age'])
+PD_0['Cingest']<-PD[2,'Cingest']*(egAGE-PD[1,'Age'])/(PD[2,'Age']-PD[1,'Age'])
+PD_0['Cmet']<-PD[2,'Cmet']*(egAGE-PD[1,'Age'])/(PD[2,'Age']-PD[1,'Age'])
+PD_0['Cegest']<-PD[2,'Cegest']*(egAGE-PD[1,'Age'])/(PD[2,'Age']-PD[1,'Age'])
+PD_0['Carbon_ThisMoult']<-NA
+PD_0['DryWeight']<-PD_0['DryWeight']+(PD[2,'DryWeight']-PD[1,'DryWeight'])*(egAGE-PD[1,'Age'])/(PD[2,'Age']-PD[1,'Age'])
+PD_0['GonadDW']<-{
+        if(PD_0['Eggs']>0) PD[2,'GonadDW']*(egAGE-PD[1,'Age'])/(PD[2,'Age']-PD[1,'Age']) else
+          PD_0['GonadDW']+(PD[2,'GonadDW']-PD[1,'GonadDW'])*(egAGE-PD[1,'Age'])/(PD[2,'Age']-PD[1,'Age'])
+}
+PD_0['AgeReprod']<-NA
+PD_0['Eggs']<-NA
+PD[1,]<-PD_0
+} # end if Age
+
+
+# adjust the last row to be time 1 in the year
+nR<-nrow(PD)
+nRp<-nR-1
+
+aL<-egAGE+1
+PD_L<-PD[nR,]
+
+if(PD_L['Age']!=(egAGE+1)){
+PD_L['Age']<-aL
+PD_L['IMPtime']<-NA
+PD_L['Ration']<-PD[nR,'Ration']  *(aL-PD[nRp,'Age'])/(PD[nR,'Age']-PD[nRp,'Age'])
+PD_L['Cingest']<-PD[nR,'Cingest']*(aL-PD[nRp,'Age'])/(PD[nR,'Age']-PD[nRp,'Age'])
+PD_L['Cmet']<-PD[nR,'Cmet']      *(aL-PD[nRp,'Age'])/(PD[nR,'Age']-PD[nRp,'Age'])
+PD_L['Cegest']<-PD[nR,'Cegest']  *(aL-PD[nRp,'Age'])/(PD[nR,'Age']-PD[nRp,'Age'])
+PD_L['Carbon_ThisMoult']<-NA
+PD_L['DryWeight']<-PD[nRp,'DryWeight']+(PD[nR,'DryWeight']-PD[nRp,'DryWeight'])*(aL-PD[nRp,'Age'])/(PD[nR,'Age']-PD[nRp,'Age'])
+PD_L['GonadDW']<-{
+        if(PD[nRp,'Eggs']>0) PD[nRp,'GonadDW']*(aL-PD[nRp,'Age'])/(PD[nR,'Age']-PD[nRp,'Age']) else
+          PD[nRp,'GonadDW']+(PD[nR,'GonadDW']-PD[nRp,'GonadDW'])*(aL-PD[nRp,'Age'])/(PD[nR,'Age']-PD[nRp,'Age'])
+         }
+PD_L['AgeReprod']<-NA
+PD_L['Eggs']<-NA
+
+PD[nR,]<-PD_L
+} # end if age
+
+print(PD)
+```
+
+Data for plotting tick marks of each Moult, and gonad dry weight
+
+```{r, echo=FALSE}
+
+# plot IMP intervals on the X-axis
+xIMP<-PD[!is.na(PD[,'IMPtime']),'Age']-egAGE
+yIMP_base<-4
+yIMP_TickLen<-(-0.1)
+yIMP_TickGonadMultiplier<-1.5
+
+GonadGT0<-PD[!is.na(PD[,'IMPtime']),'GonadDW']>0
+
+yIMP_Tick<-rep(yIMP_TickLen,length(xIMP))
+yIMP_Tick[GonadGT0]<-yIMP_TickGonadMultiplier*yIMP_TickLen
+yIMP<-cbind(rep(yIMP_base,length(xIMP)),(yIMP_Tick+yIMP_base))
+
+col_IMP<-rep('black',length(xIMP))
+col_IMP[GonadGT0]<-'red3'
+lwd_IMP<-1
+Ylim_IMP<-c(0,4)
+Xlim_IMP<-c(0,1)
+plot(NA, NA, axes=F, ylim=Ylim_IMP, xlab='', ylab='', main='', xlim=Xlim_IMP)
+for (i in 1:length(xIMP)) lines(rep(xIMP[i],2),yIMP[i,],col=col_IMP[i],lwd=lwd_IMP)
+
+# plot x-axis
+axis(1,pretty(range(0,1),10))
+mtext(Xlab,side=1,col='black',line=2)
+
+
+# gonad dry weight matrix - col 1 = time of year, col 2 = gonad dry weight
+# shows resetting of gonad to zero after eggs have been spawned
+yGDW<-PD[,'GonadDW']
+xGDW<-PD[,'Age']-egAGE
+xGonadDW<-NULL
+yGonadDW<-NULL
+whichEggs<-c(0,which(PD[,'Eggs']>0))
+for (i in 2:length(whichEggs)){
+  xGonadDW<-c(xGonadDW,xGDW[c((whichEggs[(i-1)]+1):whichEggs[i])],xGDW[whichEggs[i]])
+  yGonadDW<-c(yGonadDW,yGDW[c((whichEggs[(i-1)]+1):whichEggs[i])],0)
+}
+# then add the rest of the vectors
+  xGonadDW<-c(xGonadDW,xGDW[c((whichEggs[length(whichEggs)]+1):length(xGDW))])
+  yGonadDW<-c(yGonadDW,yGDW[c((whichEggs[length(whichEggs)]+1):length(yGDW))])
+
+
+plot(xGonadDW,yGonadDW,type="l",col="red3")
+print(cbind(xGonadDW,yGonadDW))
+
+```
+
+
+Plot of example (age,sex) over one year
+
+```{r, echo=FALSE}
+
+############# Graphics ready for printing to TIF file
+
+if(PLOT.TIF) tiff(filename = "EMC_example_Age v1.tif", width = 170, height = 100, units = "mm", res=300)
+
+par(mar=c(3, 12, 2, 4) + 0.1) # as much space in left margin as possible
+par(cex.axis=0.75)
+
+xTimeOfYear<-PD[,'Age']-egAGE
+Xlim<-c(0,1)
+Xlab<-"Proportion of Calendar Year"
+
+Ylim_Len<-c(30,50)
+col_Len<-"black"
+lty_Len<-1
+lwd_Len<-1
+Ylab_Len<-'Length (mm)'
+
+Ylim_DW<-c(0,250)
+col_DW<-"blue"
+lty_DW<-3
+lwd_DW<-1
+Ylab_DW<-'Body Dry Weight (mg)'
+
+Ylim_GonadDW<-c(0,120)
+col_GonadDW<-"red3"
+lty_GonadDW<-8
+lwd_GonadDW<-1
+Ylab_GonadDW<-'Gonad Dry Weight (mg)'
+
+# length
+plot(xTimeOfYear, PD[,'Length'], axes=F, ylim=Ylim_Len, xlab='', ylab='', type='l', col=col_Len, lty=lty_Len,main='', xlim=Xlim, lwd=lwd_Len)
+axis(2, ylim=Ylim_Len,col=col_Len,lwd=1,col.axis=col_Len)
+mtext(2,text=Ylab_Len,line=2,col=col_Len,cex=0.75)
+
+par(new=T)
+plot(xTimeOfYear, PD[,'DryWeight'], axes=F, ylim=Ylim_DW, xlab='', ylab='', type='l', col=col_DW, lty=lty_DW, main='', xlim=Xlim, lwd=lwd_DW)
+axis(2, ylim=Ylim_DW,lwd=1,line=3.5, col=col_DW,col.axis=col_DW)
+mtext(2,text=Ylab_DW,line=5.5, col=col_DW,cex=0.75)
+
+par(new=T)
+plot(xGonadDW, yGonadDW, axes=F, ylim=Ylim_GonadDW, xlab='', ylab='', type='l', col=col_GonadDW, lty=lty_GonadDW, main='',xlim=Xlim,lwd=lwd_GonadDW)
+axis(2, ylim=Ylim_GonadDW,lwd=1,line=7, col=col_GonadDW,col.axis=col_GonadDW)
+mtext(2,text=Ylab_GonadDW,line=9, col=col_GonadDW,cex=0.75)
+
+# plot tick marks for IMP & symbols for representing spawning and reproductive phase
+par(new=T)
+plot(NA, NA, axes=F, ylim=Ylim_IMP, xlab='', ylab='', main='', xlim=Xlim_IMP)
+for (i in 1:length(xIMP)) lines(rep(xIMP[i],2),yIMP[i,],col=col_IMP[i],lwd=lwd_IMP)
+
+xSpawnTimes<-xTimeOfYear[whichEggs]
+ySpawnTimes<-rep((yIMP_base[1]*(1+0.005)+abs(yIMP_TickLen)),length(xSpawnTimes))
+points(xSpawnTimes,ySpawnTimes,pch="s",cex=0.5)
+
+# point for entering gonadal phase
+#points(-0.01,ySpawnTimes[1],pch="G",cex=1)
+points(xIMP[length(xIMP)],ySpawnTimes[1],pch="G",cex=0.5)
+
+# point for entering regression phase and post-regression phase
+points(xTimeOfYear[whichEggs[length(whichEggs)]+4],ySpawnTimes[1],pch="R",cex=0.5)
+points(xTimeOfYear[whichEggs[length(whichEggs)]+9],ySpawnTimes[1],pch="P",cex=0.5)
+
+#We can now draw the X-axis, which is of course shared by all the three time-series.
+
+axis(1,pretty(range(0,1),10))
+mtext(Xlab,side=1,col='black',line=2,cex=0.75)
+
+# return plotting to terminal
+
+if(PLOT.TIF) dev.off()
+
+############# End printing to TIF file
+```
+
+
+
+
+
+###Plot the Environmental Variables on one graph
+
+```{r, echo=FALSE}
+# prepare vectors
+
+nIm<-30  # number of intervals per month
+xDayLength<-c(0:100)/100
+yDayLength<-DL_EMC(Area_lat[Area_n==ActiveArea],xDayLength)
+
+xTemp<-Local$Env[,'CalPropYrStart']+Local$Env[,'dt']/2
+yTemp<-Local$Env[,'Temp']
+
+# now calculate temperature at 0 and 1 in the calendar year
+nT<-length(Local$Env[,'dt'])
+yT_0<-yTemp[nT]+((1-xTemp[nT])/(1-xTemp[nT]+xTemp[1]))*(yTemp[1]-yTemp[nT])
+xTemp<-c(0,xTemp,1)
+yTemp<-c(yT_0,yTemp,yT_0)
+
+
+xF<-Local$Env[,'dt']
+yF<-Local$Env[,'Food']
+
+xFi<-NULL
+yFood<-NULL
+for (i in 1:length(xF)) {
+    xFi<-c(xFi,rep(xF[i]/nIm,nIm))
+    yFood<-c(yFood,rep(yF[i]/nIm,nIm))
+}
+
+xFood<-NULL
+for (j in 1:length(xFi)) xFood<-c(xFood,sum(xFi[1:j]))
+
+xFood<-c(0,xFood)
+yFood<-c(yFood,yFood[1])
+
+
+
+############# Graphics ready for printing to TIF file (set logical above)
+
+if(PLOT.TIF) tiff(filename = "EMC_Environment v1.tif", width = 170, height = 100, units = "mm", res=300)
+
+par(mar=c(3, 12, 2, 4) + 0.1) # as much space in left margin as possible
+par(cex.axis=0.75)
+
+
+Xlim<-c(0,1)
+Xlab<-"Proportion of Calendar Year"
+
+Ylim_Temp<-c(-1,4)
+col_Temp<-"red3"
+lty_Temp<-1
+lwd_Temp<-1
+Ylab_Temp<-expression(paste('Temperature (',degree,'C)'))
+
+Ylim_Food<-c(0,1600)
+col_Food<-"blue"
+lty_Food<-8
+lwd_Food<-1
+Ylab_Food<-expression(paste('Available food (mg.C.m'^-3,')'))
+
+Ylim_DL<-c(0,24)
+col_DL<-"black"
+lty_DL<-3
+lwd_DL<-1
+Ylab_DL<-"Day Length (Hours)"
+
+plot(xTemp, yTemp, axes=F, ylim=Ylim_Temp, xlab='', ylab='', type='l', col=col_Temp, lty=lty_Temp,main='', xlim=Xlim, lwd=lwd_Temp)
+axis(2, ylim=Ylim_Temp,col=col_Temp,lwd=1,col.axis=col_Temp)
+mtext(2,text=Ylab_Temp,line=2,col=col_Temp, cex=0.75)
+
+par(new=T)
+plot(xFood, yFood, axes=F, ylim=Ylim_Food, xlab='', ylab='', type='l', col=col_Food, lty=lty_Food, main='', xlim=Xlim, lwd=lwd_Food)
+axis(2, ylim=Ylim_Food,lwd=1,line=3.5, col=col_Food,col.axis=col_Food)
+mtext(2,text=Ylab_Food,line=5.5, col=col_Food, cex=0.75)
+
+par(new=T)
+plot(xDayLength, yDayLength, axes=F, ylim=Ylim_DL, xlab='', ylab='', type='l', col=col_DL, lty=lty_DL, main='',xlim=Xlim,lwd=lwd_DL)
+axis(2, ylim=Ylim_DL,lwd=1,line=7, col=col_DL,col.axis=col_DL)
+mtext(2,text=Ylab_DL,line=9, col=col_DL, cex=0.75)
+
+# plot tick marks for IMP
+par(new=T)
+plot(NA, NA, axes=F, ylim=Ylim_IMP, xlab='', ylab='', main='', xlim=Xlim_IMP)
+for (i in 1:length(xIMP)) lines(rep(xIMP[i],2),yIMP[i,],col=col_IMP[i],lwd=lwd_IMP)
+
+#We can now draw the X-axis, which is of course shared by all the three time-series.
+
+axis(1,pretty(range(0,1),10))
+mtext(Xlab,side=1,col='black',line=2, cex=0.75)
+
+# return plotting to terminal
+
+if(PLOT.TIF) dev.off()
+
+############# End printing to TIF file
+
+
+
+```

@@ -1,0 +1,181 @@
+Krill EMC Growth
+========================================================
+
+This document provides a test of the routines used in Constable & Kawaguchi on Krill growth.
+
+# Krill Parameters
+
+```{r}
+source("Data\\Growth_data_KrillParams.r")
+source("Data\\Growth_data_KrillSizeAtAge.r")
+source("Fns\\Growth_Fn_EMC.r")    # functions to support EMC and validation
+```
+
+Summaries plots are provided for length and age (based on partial von Bertalanffy growth).  some plots are shown in order to compare results with original publications.
+
+Length at age: von Bertalanffy class
+
+```{r}
+Age<-c(0:350)/50
+plot(NA,NA,xlim=c(0,8),ylim=c(0,70),xlab="Age",ylab="Length (mm)",lwd=2)
+lines(Age,Growth.VB(SizeAtAge_p$VB,Age,0,0),col="black",lwd=2)
+lines(Age,Growth.PVB(SizeAtAge_p$PVB,Age,0,0),col="black",lty=2,lwd=2)
+lines(Age,Growth.SVB(SizeAtAge_p$SVB,Age,0,0),col="red",lwd=2)
+lines(Age,Growth.SVB(SizeAtAge_p$SVB_CK,Age,0,0),col="red",lwd=2,lty=2)
+lines(Age,Growth.PVB_F(SizeAtAge_p$PVB_F,Age,0,0),col="red",lwd=2,lty=3)
+legend("bottom",legend=c("vB","partial vB","Siegel","Siegel - Candy-Kawaguchi","Candy-Kawaguchi")
+       ,col=c("black","black","red","red","red"),lty=c(1,2,1,2,3),lwd=2)
+```
+
+
+Length-weight
+
+```{r}
+Age<-c(0:8)
+Sex<-list(name = c("MA2","FA1","FA4"), col = c("black","red","green"))
+Length<-Growth.VB(SizeAtAge_p$VB,Age,0,0)
+plot(NULL,NULL,xlim=c(0,70),ylim=c(0,2E3),xlab="Length (mm)",ylab="Wet Weight (mg)",lwd=2)
+for (i in 1:3) lines(Length,(EMC_p$LW[i,1]*Length^EMC_p$LW[i,2]),col=Sex$col[i],lwd=2,type="b")
+legend("bottomright",legend=Sex$name,col=Sex$col,lty=1,lwd=2)
+```
+
+```{r}
+plot(NULL,NULL,xlim=c(0,70),ylim=c(0,0.5E3),xlab="Length (mm)",ylab="Dry Weight (mg)",col=1,lwd=2)
+for (i in 1:3) lines(Length,DW_from_Length(Length,EMC_p$LW,i),col=Sex$col[i],lwd=2,type="b")
+legend("bottomright",legend=Sex$name,col=Sex$col,lty=1,lwd=2)
+```
+
+Carbon
+
+```{r}
+plot(NULL,NULL,xlim=c(0,70),ylim=c(0,200),xlab="Length (mm)",ylab="Carbon (mg)",col=1,lwd=2)
+for (i in 1:3) lines(Length,Cwt(DW_from_Length(Length,EMC_p$LW,i)),col=Sex$col[i],lwd=2,type="b")
+legend("bottomright",legend=Sex$name,col=Sex$col,lty=1,lwd=2)
+```
+
+
+```{r}
+plot(NULL,NULL,xlim=c(0,0.5E3),ylim=c(0,200),xlab="Dry Weight (mg)",ylab="Carbon (mg)",col=1,lwd=2)
+for (i in 1:3) lines(DW_from_Length(Length,EMC_p$LW,i),Cwt(DW_from_Length(Length,EMC_p$LW,i)),col=Sex$col[i],lwd=2,type="b")
+legend("bottomright",legend=Sex$name,col=Sex$col,lty=1,lwd=2)
+```
+
+Feeding Rate
+
+NB the plot here reflects m3 per day whereas the function returns cubic meters per year
+NB2 the calculation is based on female FA1
+
+
+```{r}
+plot(NULL,NULL,xlim=c(0,0.5E3),ylim=c(0,0.01),xlab="Dry Weight (mg)",ylab="Filtration rate (m3.d-1)",col=1,lwd=2)
+lines(DW_from_Length(Length,EMC_p$LW,1),(Fcf_EMC(DW_from_Length(Length,EMC_p$LW,1))/365),lwd=2,type="b")
+```
+
+Metabolic demand per day
+
+NB the plot here reflects mgC per day whereas the function returns mgC per year
+Example is for 1oC
+
+
+```{r}
+MetC<-NULL
+for (i in 1:length(Length)) MetC<-c(MetC,MetC_EMC(1,DW_from_Length(Length[i],EMC_p$LW,1))/365) # (temp,length,LW params)
+plot(Length,(MetC),xlab="Length (mm)",ylab="Metabolic demand (mgC per day)",ylim=c(0,5),col=1,lwd=2,type="b")
+```
+
+```{r}
+temp_Length<-40
+Temp<-c(0:50)/10-2
+MetC<-NULL
+for (i in 1:length(Temp)) MetC<-c(MetC,MetC_EMC(Temp[i],DW_from_Length(temp_Length,EMC_p$LW,1))/365) # (temp,length,LW params)
+plot(Temp,MetC,xlab="Temperature (oC)",ylab="Metabolic demand (mgC.d-1)",col=1,lwd=2,type="b")
+```
+
+Metabolic demand per day for different weights at length : thin krill versus ideal krill weight
+```{r}
+temp_Length<-40
+WtIdeal<-DW_from_Length(temp_Length,EMC_p$LW,1)
+Wt<-c(0:100)/100*WtIdeal
+LgivenWt<-Length_from_DW(Wt,EMC_p$LW,1)
+MetC_ideal<-NULL
+for (i in 1:length(Wt)) MetC_ideal<-c(MetC_ideal,MetC_EMC(1,Wt[i])/365) 
+Metc_adjust<-MetC_ideal*(LgivenWt/Length)^2
+plot(Wt,MetC_ideal)
+lines(Wt,Metc_adjust,col="red")
+plot(Wt,Metc_adjust/MetC_ideal)
+```
+
+
+Eggs per clutch
+
+
+```{r}
+Eggs<-NULL
+for (i in 1:length(Length)) Eggs<-c(Eggs,Reprod_EggsMax(Length[i],EMC_p$LW)) 
+plot(Length,Eggs,xlab="Length (mm)",ylab="Eggs (n)",col=1,lwd=2,type="b")
+```
+
+
+
+
+# Environment Data
+
+A matrix of environmental data for each area is developed as **AreaEnv** from a source file.
+
+
+```{r}
+source("Data\\Growth_data_Env.r")
+summary(AreaEnv)
+```
+
+Temperature summary:
+
+```{r fig.width=7, fig.height=6}
+plot(NULL,NULL,xlab="Time of Year",ylab="Temp",xlim=c(0,1),ylim=c(min(AreaEnv[,"Temp"]),max(AreaEnv[,"Temp"])))
+for(i in 1:length(Area_n)) {
+  Xdata<-AreaEnv[AreaEnv[,"Area"]==Area_n[i],"dt"]
+  Recs<-length(Xdata)
+  Xd<-Xdata*0
+  for(j in 1:Recs) Xd[j]<-sum(Xdata[c(1:j)])-Xdata[j]/2
+  Xd<-c(-(Xdata[Recs]/2),Xd,(1+Xdata[1]/2))
+  Yd<-AreaEnv[AreaEnv[,"Area"]==Area_n[i],"Temp"]
+  Yd<-c(Yd[Recs],Yd,Yd[1])
+  lines(Xd,Yd,col=Area_col[i],type="b")
+  }
+legend("topright",legend=Area_names,col=Area_col,lty=Area_lty)
+```
+
+Food summary:
+
+```{r fig.width=7, fig.height=6}
+{
+  plot(NULL,NULL,xlab="Time of Year",ylab="Food",xlim=c(0,1),ylim=c(min(AreaEnv[,"Temp"]),max(AreaEnv[,"Food"])))
+for(i in 1:length(Area_n)) {
+  Xdata<-AreaEnv[AreaEnv[,"Area"]==Area_n[i],"dt"]
+  Recs<-length(Xdata)
+  Xd<-Xdata*0
+  for(j in 1:Recs) Xd[j]<-sum(Xdata[c(1:j)])-Xdata[j]/2
+  Xd<-c(-(Xdata[Recs]/2),Xd,(1+Xdata[1]/2))
+  Yd<-AreaEnv[AreaEnv[,"Area"]==Area_n[i],"Food"]
+  Yd<-c(Yd[Recs],Yd,Yd[1])
+  lines(Xd,Yd,col=Area_col[i],type="b")
+  }
+legend("bottomright",legend=Area_names,col=Area_col,lty=Area_lty)
+}
+```
+
+
+
+# Results
+
+Length at age: models based on temperature
+
+
+new growth model & candy & kawaguchi model compared to vB
+
+
+plot(NA,NA,xlim=c(0,8),ylim=c(0,70),xlab="Age",ylab="Length (mm)",lwd=2)
+lines(Age,Growth.VB(SizeAtAge_p$P_VB,Age,0,0),col="black",lwd=2)
+lines(Age,Growth.PVB_F(SizeAtAge_p$P_PVB_F,Age,0,0),col="red",lwd=2)
+#lines(L_A20_M[,1],Lmn_A20,col="black",lty=2,lwd=2)
+
